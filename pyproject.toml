@@ -20,6 +20,7 @@ dependencies = [
 imgdb = "src.cli:main"
 imgdb-embed = "src.cli_embeddings:main"
 imgdb-monitor = "src.cli_monitor:main"
+imgdb-full = "src.cli_full:main"
 
 [tool.setuptools.packages.find]
 include = ["src*"]

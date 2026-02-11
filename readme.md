@@ -35,6 +35,8 @@ To do the embedding, we connect to a local openai like embedding server.
 
 See the guide [how to use](how_to_use.md)
 
+For embedding, you need to run the microserver
+
 # Environment Variables
 
 You need to configure a few env variables:
@@ -52,5 +54,4 @@ EMBEDDING_MODELS='dinov2-small,dinov2-base,dinov2-large'
 # TODO list
 
 
-- Add a sample code to run a minimal server if needed (as my server is not public and implementation for image embedding is not standard)
 - Improve UX to run the indexing. 

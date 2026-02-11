@@ -1,0 +1,10 @@
+{
+    "id": "dinov2-base",
+    "name": "DINOv2 Base",
+    "hf_model": "facebook/dinov2-base",
+    "task": "image-embedding",
+    "description": "Self-supervised vision transformer for image embeddings",
+    "embedding_dim": 768,
+    "loader": "transformers_vision",
+    "size_mb": 350
+}
