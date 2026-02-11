@@ -1,24 +1,56 @@
-# Image Embedding Storage
+# Image RAG
 
-We want to make a specific database system.
+**Scenario**:
 
-Images might be stored in folder, may be change of location.
-Therefore, we cannot rely on its path.
-However, we can rely on its hash, which does not change.
-Therefore, we want to store in a DB, a records which looks like this:
+You have images on your computer, that are in folders, subfolders.
+You may move it, classify them differently.
+Possibly, you may rescale them, do minor edits.
 
-- hash
-- width
-- height
-- size (bytes)
-- mimetype
+The tool helps you to search accros your images, whatever you do with.
 
-We want to be able to retrieve an image at any time.
-We will be given a hash, and we need to find out.
+# How it works
 
-So, we need to implement that:
-- Ingestion system (add records in the DB)
-- Search system: Compute the hash of the images in the folder/subfolders to keep it in memory, and address requests. Maybe in a static way: Ask to recompute the image tree (store as a json,) and then for each query, read the file.
+## Indexing phase
 
-We will have very infrequent access, so file DB are OK.
+- Compute the embedding of an image
+- Compute the hash of the image
+- Store (embedding, hash) into a RAG db (chromaDB here)
 
+## Path indexing
+
+Files might be move here and there.
+Before searching accross files, you need to compute (path, hash), so when getting a image match, you can get the raw image.
+
+## Seach / Retrieval Phase
+
+Upload an image (a rescaled version or not).
+It computes the embedding and search accross the RAG DB.
+
+For the embedding, we use [dinov2-small](https://huggingface.co/facebook/dinov2-small)
+
+To do the embedding, we connect to a local openai like embedding server.
+
+
+# How to Run?
+
+See the guide [how to use](how_to_use.md)
+
+# Environment Variables
+
+You need to configure a few env variables:
+
+```sh
+# Model you want to use for embedding
+# URL of the server
+EMBEDDING_MODEL=dinov2-small
+EMBEDDING_API_URL=http://0.0.0.0:8000
+
+# For the streamlit app, multichoice
+EMBEDDING_MODELS='dinov2-small,dinov2-base,dinov2-large'
+```
+
+# TODO list
+
+
+- Add a sample code to run a minimal server if needed (as my server is not public and implementation for image embedding is not standard)
+- Improve UX to run the indexing. 
