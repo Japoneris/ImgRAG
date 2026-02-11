@@ -11,10 +11,39 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+from tqdm import tqdm
+import yaml
+
 from .api.embedding_api import EmbeddingAPI, EmbeddingAPIError
 from .storage.embedding_db import EmbeddingDatabase
 from .storage.database import ImageDatabase
 from .core.scanner import ImageScanner
+
+
+def load_config(config_path: str) -> dict:
+    """Load configuration from YAML file."""
+    path = Path(config_path)
+    if not path.exists():
+        print(f"Error: Config file not found: {config_path}")
+        sys.exit(1)
+
+    with open(path) as f:
+        config = yaml.safe_load(f)
+
+    if not config:
+        print(f"Error: Empty config file: {config_path}")
+        sys.exit(1)
+
+    if "paths" not in config:
+        print(f"Error: Config file must contain 'paths' key")
+        sys.exit(1)
+
+    if not config["paths"]:
+        print(f"Error: 'paths' list is empty")
+        sys.exit(1)
+
+    return config
 
 
 def get_api_client() -> EmbeddingAPI:
@@ -94,7 +123,7 @@ def embed_directory(args):
     skipped = 0
     errors = 0
 
-    for filepath in images:
+    for filepath in tqdm(images, desc="Embedding images"):
         image_hash = ImageScanner.compute_hash(filepath)
 
         # Check if already exists
@@ -107,7 +136,7 @@ def embed_directory(args):
         try:
             embedding = api.get_embedding(filepath, model=model)
         except EmbeddingAPIError as e:
-            print(f"Warning: Failed to process {filepath.name}: {e}")
+            tqdm.write(f"Warning: Failed to process {filepath.name}: {e}")
             errors += 1
             continue
 
@@ -118,7 +147,6 @@ def embed_directory(args):
         }
         embed_db.add_embedding(image_hash, embedding, model, metadata)
         processed += 1
-        print(f"Processed: {filepath.name} ({image_hash[:12]}...)")
 
     print(f"\nDone: {processed} processed, {skipped} skipped, {errors} errors")
     print(f"Total embeddings for model '{model}': {embed_db.count(model)}")
@@ -147,7 +175,7 @@ def embed_from_db(args):
     not_found = 0
     errors = 0
 
-    for record in records:
+    for record in tqdm(records, desc="Embedding from DB"):
         # Check if already has embedding
         existing = embed_db.get_embedding(record.hash, model)
         if existing and not args.force:
@@ -169,7 +197,7 @@ def embed_from_db(args):
         try:
             embedding = api.get_embedding(filepath, model=model)
         except EmbeddingAPIError as e:
-            print(f"Warning: Failed to process {record.hash[:12]}...: {e}")
+            tqdm.write(f"Warning: Failed to process {record.hash[:12]}...: {e}")
             errors += 1
             continue
 
@@ -182,9 +210,85 @@ def embed_from_db(args):
         }
         embed_db.add_embedding(record.hash, embedding, model, metadata)
         processed += 1
-        print(f"Processed: {filepath.name} ({record.hash[:12]}...)")
 
     print(f"\nDone: {processed} processed, {skipped} skipped, {not_found} not found, {errors} errors")
+    print(f"Total embeddings for model '{model}': {embed_db.count(model)}")
+
+
+def embed_from_config(args):
+    """Compute embeddings for all images in configured directories."""
+    config = load_config(args.config)
+    api = get_api_client()
+    model = get_model_name()
+    embed_db = EmbeddingDatabase(args.embeddings_db)
+
+    paths = [Path(p) for p in config.get("paths", [])]
+    recursive = config.get("recursive", True)
+
+    # Validate paths
+    for path in paths:
+        if not path.exists():
+            print(f"Warning: Configured path does not exist: {path}")
+
+    print(f"Processing {len(paths)} configured path(s)...")
+    print(f"Model: {model}")
+    print(f"Recursive: {recursive}")
+    print()
+
+    total_processed = 0
+    total_skipped = 0
+    total_errors = 0
+
+    for dirpath in paths:
+        if not dirpath.exists():
+            continue
+
+        if dirpath.is_file():
+            # Single file
+            images = [dirpath] if ImageScanner.is_image(dirpath) else []
+        else:
+            # Directory
+            if recursive:
+                images = [f for f in dirpath.rglob("*") if f.is_file() and ImageScanner.is_image(f)]
+            else:
+                images = [f for f in dirpath.glob("*") if f.is_file() and ImageScanner.is_image(f)]
+
+        print(f"Found {len(images)} images in {dirpath}")
+
+        processed = 0
+        skipped = 0
+        errors = 0
+
+        for filepath in tqdm(images, desc=str(dirpath), leave=False):
+            image_hash = ImageScanner.compute_hash(filepath)
+
+            # Check if already exists
+            existing = embed_db.get_embedding(image_hash, model)
+            if existing and not args.force:
+                skipped += 1
+                continue
+
+            # Get embedding from API
+            try:
+                embedding = api.get_embedding(filepath, model=model)
+            except EmbeddingAPIError as e:
+                tqdm.write(f"Warning: Failed to process {filepath.name}: {e}")
+                errors += 1
+                continue
+
+            # Store in database
+            metadata = {
+                "filepath": str(filepath.absolute()),
+                "dimensions": len(embedding),
+            }
+            embed_db.add_embedding(image_hash, embedding, model, metadata)
+            processed += 1
+
+        total_processed += processed
+        total_skipped += skipped
+        total_errors += errors
+
+    print(f"\nDone: {total_processed} processed, {total_skipped} skipped, {total_errors} errors")
     print(f"Total embeddings for model '{model}': {embed_db.count(model)}")
 
 
@@ -238,6 +342,7 @@ def health_check(args):
 
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(
         description="Compute and store image embeddings using an external API",
         epilog="Environment variables: EMBEDDING_API_URL (required), EMBEDDING_MODEL, EMBEDDING_API_KEY"
@@ -276,6 +381,12 @@ def main():
     db_parser = subparsers.add_parser("embed-db", help="Compute embeddings for images in metadata database")
     db_parser.add_argument("--force", "-f", action="store_true", help="Recompute even if exists")
     db_parser.set_defaults(func=embed_from_db)
+
+    # embed-config command
+    config_parser = subparsers.add_parser("embed-config", help="Compute embeddings for images in configured directories")
+    config_parser.add_argument("config", help="Path to YAML config file")
+    config_parser.add_argument("--force", "-f", action="store_true", help="Recompute even if exists")
+    config_parser.set_defaults(func=embed_from_config)
 
     # search command
     search_parser = subparsers.add_parser("search", help="Find similar images by hash")

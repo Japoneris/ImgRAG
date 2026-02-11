@@ -210,9 +210,10 @@ class EmbeddingAPI:
         image_data_url = format_image_data_url(png_base64)
 
         payload = {
-            "image": image_data_url,
+            "input": image_data_url,
             "model": model,
         }
+
 
         try:
             response = requests.post(
@@ -228,7 +229,8 @@ class EmbeddingAPI:
                 )
 
             data = response.json()
-            return data["embedding"]
+
+            return data["data"][0]["embedding"]
 
         except requests.RequestException as e:
             raise EmbeddingAPIError(f"Request failed: {e}")

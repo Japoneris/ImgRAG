@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imgdb"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0.0",
+    "chromadb>=1.0.0",
+    "requests>=2.28.0",
+    "streamlit>=1.30.0",
+    "pyyaml>=6.0",
+    "python-dotenv",
+    "tqdm>=4.60.0",
+]
+
+[project.scripts]
+imgdb = "src.cli:main"
+imgdb-embed = "src.cli_embeddings:main"
+imgdb-monitor = "src.cli_monitor:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]

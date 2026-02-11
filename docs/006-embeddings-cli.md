@@ -78,6 +78,26 @@ python -m src.cli_embeddings embed-db --force
 **Options:**
 - `--force, -f`: Recompute all embeddings
 
+### embed-config
+
+Compute embeddings for images in multiple directories defined in a YAML config file.
+
+```bash
+python -m src.cli_embeddings embed-config config.yaml
+python -m src.cli_embeddings embed-config config.yaml --force
+```
+
+**Config file format:**
+```yaml
+paths:
+  - /path/to/images1
+  - /path/to/images2
+recursive: true  # optional, default true
+```
+
+**Options:**
+- `--force, -f`: Recompute all embeddings
+
 ### search
 
 Find similar images by hash (or hash prefix).
