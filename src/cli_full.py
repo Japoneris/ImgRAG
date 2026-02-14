@@ -369,6 +369,45 @@ def health_check(args):
         sys.exit(1)
 
 
+def analyze(args):
+    """Run dimensionality reduction on embeddings and save results."""
+    from .analysis.embedding_analyzer import build_analysis_data, save_analysis
+
+    model = get_model_name()
+    embed_db = EmbeddingDatabase(args.embeddings_db)
+    img_db = ImageDatabase(args.database)
+
+    data = build_analysis_data(
+        embed_db=embed_db,
+        img_db=img_db,
+        index_path=args.index,
+        model_name=model,
+        method=args.method,
+    )
+
+    if data["count"] == 0:
+        print("No embeddings found. Run 'ingest' first.")
+        sys.exit(1)
+
+    save_analysis(data, args.output)
+
+
+def visualize(args):
+    """Launch interactive visualization of analysis results."""
+    data_path = Path(args.data_path)
+    if not data_path.exists():
+        print(f"Error: Analysis file not found: {data_path}")
+        print("Run 'analyze' first to generate the analysis data.")
+        sys.exit(1)
+
+    if args.static:
+        from .analysis.viewer import generate_static_html
+        generate_static_html(data_path, args.static)
+    else:
+        from .analysis.visualizer import run_server
+        run_server(data_path, port=args.port)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -466,6 +505,43 @@ def main():
         help="Check embedding API connectivity",
     )
     health_parser.set_defaults(func=health_check)
+
+    # --- analyze ---
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Run dimensionality reduction (t-SNE/UMAP) on embeddings",
+    )
+    analyze_parser.add_argument(
+        "--method", "-m",
+        choices=["tsne", "umap"],
+        default="tsne",
+        help="Reduction method (default: tsne)",
+    )
+    analyze_parser.add_argument(
+        "--output", "-o",
+        default="data/analysis.json",
+        help="Output JSON file (default: data/analysis.json)",
+    )
+    analyze_parser.set_defaults(func=analyze)
+
+    # --- visualize ---
+    viz_parser = subparsers.add_parser(
+        "visualize",
+        help="Visualize analysis results (Bokeh server or static HTML)",
+    )
+    viz_parser.add_argument("data_path", help="Path to analysis JSON file")
+    viz_parser.add_argument(
+        "--static", "-s",
+        metavar="OUTPUT_HTML",
+        help="Generate a static HTML file instead of launching a server",
+    )
+    viz_parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=5006,
+        help="Bokeh server port (default: 5006)",
+    )
+    viz_parser.set_defaults(func=visualize)
 
     args = parser.parse_args()
     args.func(args)

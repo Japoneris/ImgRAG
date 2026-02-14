@@ -198,6 +198,27 @@ class EmbeddingDatabase:
         collection = self._get_collection(model_name)
         return collection.count()
 
+    def get_all_embeddings(self, model_name: str) -> dict[str, list[float]]:
+        """Fetch all embeddings for a model in one batch.
+
+        Args:
+            model_name: Name of the embedding model
+
+        Returns:
+            Dictionary mapping image hashes to embedding vectors
+        """
+        collection = self._get_collection(model_name)
+        result = collection.get(include=["embeddings"])
+
+        embeddings = {}
+        if result["ids"] and result["embeddings"] is not None and len(result["embeddings"]) > 0:
+            for hash_id, emb in zip(result["ids"], result["embeddings"]):
+                if hasattr(emb, "tolist"):
+                    embeddings[hash_id] = emb.tolist()
+                else:
+                    embeddings[hash_id] = list(emb)
+        return embeddings
+
     def list_hashes(self, model_name: str, limit: int = 100) -> list[str]:
         """List image hashes stored for a model.
 
