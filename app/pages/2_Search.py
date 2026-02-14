@@ -53,6 +53,7 @@ api_key = st.sidebar.text_input(
     type="password",
 )
 n_results = st.sidebar.slider("Number of results", min_value=1, max_value=50, value=10)
+metric = st.sidebar.radio("Metric", ["L2 Distance", "Cosine Similarity"], horizontal=True)
 
 
 @st.cache_resource
@@ -193,11 +194,15 @@ else:  # Select from Database
 # Search and display results
 if query_embedding:
     st.header("Search Results")
-    print("Model", model_name)
-    print("n", n_results)
-    print("query", query_embedding)
+    use_cosine = metric == "Cosine Similarity"
+    metric_label = "Similarity" if use_cosine else "Distance"
+
     with st.spinner("Searching..."):
-        results = emb_db.search_similar(query_embedding, model_name, n_results)
+        if use_cosine:
+            raw_results = emb_db.search_similar_with_cosine(query_embedding, model_name, n_results)
+            results = [(h, cosine_sim) for h, _dist, cosine_sim in raw_results]
+        else:
+            results = emb_db.search_similar(query_embedding, model_name, n_results)
 
     if not results:
         st.info("No similar images found.")
@@ -207,7 +212,7 @@ if query_embedding:
             cols = st.columns(4)
             for j, col in enumerate(cols):
                 if i + j < len(results):
-                    image_hash, distance = results[i + j]
+                    image_hash, score = results[i + j]
                     filepath = get_filepath_for_hash(image_hash, index, base_path)
 
                     with col:
@@ -222,18 +227,18 @@ if query_embedding:
                             st.text("[Image not found]")
 
                         st.caption(f"Hash: {image_hash[:12]}...")
-                        st.caption(f"Distance: {distance:.4f}")
+                        st.caption(f"{metric_label}: {score:.4f}")
                         st.markdown(f"Path: {make_file_link(filepath)}", unsafe_allow_html=False)
 
         # Also show as table
         st.subheader("Results Table")
         table_data = []
-        for image_hash, distance in results:
+        for image_hash, score in results:
             record = db.get_by_hash(image_hash)
             filepath = get_filepath_for_hash(image_hash, index, base_path)
             table_data.append({
                 "Hash": image_hash[:16] + "...",
-                "Distance": f"{distance:.4f}",
+                metric_label: f"{score:.4f}",
                 "Dimensions": f"{record.width}x{record.height}" if record else "-",
                 "Size": record.size if record else "-",
                 "Path": filepath,

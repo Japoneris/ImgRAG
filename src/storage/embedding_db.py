@@ -4,6 +4,7 @@ Each embedding model gets its own collection to ensure consistent vector dimensi
 """
 
 import chromadb
+import numpy as np
 from pathlib import Path
 from typing import Optional
 
@@ -123,6 +124,53 @@ class EmbeddingDatabase:
             distances = results["distances"][0] if results["distances"] else [0.0] * len(ids)
             for hash_id, dist in zip(ids, distances):
                 matches.append((hash_id, dist))
+
+        return matches
+
+    def search_similar_with_cosine(
+        self,
+        embedding: list[float],
+        model_name: str,
+        n_results: int = 10,
+    ) -> list[tuple[str, float, float]]:
+        """Find images with similar embeddings, returning both L2 distance and cosine similarity.
+
+        Args:
+            embedding: Query embedding vector
+            model_name: Name of the embedding model
+            n_results: Maximum number of results to return
+
+        Returns:
+            List of (image_hash, l2_distance, cosine_similarity) tuples, sorted by L2 distance
+        """
+        collection = self._get_collection(model_name)
+
+        results = collection.query(
+            query_embeddings=[embedding],
+            n_results=n_results,
+            include=["distances", "embeddings"],
+        )
+
+        matches = []
+        if results["ids"] and len(results["ids"]) > 0:
+            ids = results["ids"][0]
+            distances = results["distances"][0] if results["distances"] else [0.0] * len(ids)
+            result_embeddings = results["embeddings"][0] if results["embeddings"] else []
+
+            query_vec = np.array(embedding)
+            query_norm = np.linalg.norm(query_vec)
+
+            for idx, (hash_id, dist) in enumerate(zip(ids, distances)):
+                if idx < len(result_embeddings) and query_norm > 0:
+                    result_vec = np.array(result_embeddings[idx])
+                    result_norm = np.linalg.norm(result_vec)
+                    if result_norm > 0:
+                        cosine_sim = float(np.dot(query_vec, result_vec) / (query_norm * result_norm))
+                    else:
+                        cosine_sim = 0.0
+                else:
+                    cosine_sim = 0.0
+                matches.append((hash_id, dist, cosine_sim))
 
         return matches
 
