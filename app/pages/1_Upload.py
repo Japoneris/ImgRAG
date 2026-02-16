@@ -37,7 +37,7 @@ api_url = st.sidebar.text_input(
 # Parse available models from environment
 available_models = [
     m.strip()
-    for m in os.environ.get("EMBEDDING_MODELS", "default").split(",")
+    for m in os.environ.get("EMBEDDING_MODELS", "dinov2-small,default").split(",")
     if m.strip()
 ]
 model_name = st.sidebar.selectbox(

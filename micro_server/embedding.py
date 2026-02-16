@@ -31,6 +31,7 @@ def get_device() -> str:
 
 
 DEVICE = get_device()
+print("DEVICE: ", DEVICE)
 
 
 # ---------------------------------------------------------------------------

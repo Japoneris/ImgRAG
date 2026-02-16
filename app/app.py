@@ -30,6 +30,8 @@ Welcome to the Image Database System. This application allows you to:
 
 - **Upload Images**: Add new images to the database with automatic embedding generation
 - **Search Images**: Find similar images using vector similarity search
+- **Hash Search**: Look up images by their SHA-256 hash
+- **Index Management**: Manage the database, ingest folders, rebuild index, and view statistics
 
 Use the sidebar to navigate between pages.
 """)
