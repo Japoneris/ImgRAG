@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  imgdb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: imgdb-app
+
+    # Port mapping for Streamlit web interface
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+
+    # Environment variables for AI server and configuration
+    environment:
+      # Embedding API configuration
+      - EMBEDDING_API_URL=${EMBEDDING_API_URL:-http://localhost:8000}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-dinov2-small}
+      - EMBEDDING_MODELS=${EMBEDDING_MODELS:-dinov2-large,dinov2-small,dinov2-base}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+
+      # Database paths (inside container)
+      - DB_PATH=/app/data/images.db
+      - EMBEDDINGS_DB_PATH=/app/data/embeddings
+      - INDEX_PATH=/app/data/index.json
+
+    # Mount volumes for persistent data
+    volumes:
+      # Database files
+      - ${DATA_DIR:-./data}:/app/data
+
+      # Optional: Mount test images or image directories
+      - ${IMAGES_DIR:-./test_images}:/app/images:ro
+
+      # Optional: Mount configs
+      - ${CONFIG_DIR:-./configs}:/app/configs:ro
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Health check for Streamlit
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: CLI service for running commands
+  imgdb-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: imgdb-cli
+
+    # Override command to keep container running for CLI usage
+    command: tail -f /dev/null
+
+    environment:
+      - EMBEDDING_API_URL=${EMBEDDING_API_URL:-http://localhost:8000}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-dinov2-small}
+      - EMBEDDING_MODELS=${EMBEDDING_MODELS:-dinov2-large,dinov2-small,dinov2-base}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+      - ${IMAGES_DIR:-./test_images}:/app/images:ro
+      - ${CONFIG_DIR:-./configs}:/app/configs:ro
+
+    # This service is for CLI usage only
+    profiles:
+      - cli
