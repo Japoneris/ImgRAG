@@ -1,7 +1,7 @@
 """
 Image Database - Streamlit App
 
-Root page providing navigation and system status.
+Main application with navigation.
 """
 import sys
 from pathlib import Path
@@ -10,12 +10,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
-from src.storage.database import ImageDatabase
-from src.storage.embedding_db import EmbeddingDatabase
-
-# Configuration
-DB_PATH = Path(__file__).parent.parent / "data" / "images.db"
-EMBEDDING_DB_PATH = Path(__file__).parent.parent / "data" / "embeddings"
 
 st.set_page_config(
     page_title="Image Database",
@@ -23,51 +17,33 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Image Database System")
+# Sidebar with cache reload button
+st.sidebar.markdown("---")
+st.sidebar.subheader("Cache Management")
+st.sidebar.markdown("Reload cached data after CLI updates or index rebuilds.")
+if st.sidebar.button("🔄 Reload Cache", type="secondary", use_container_width=True):
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    st.sidebar.success("Cache cleared! Reloading...")
+    st.rerun()
 
-st.markdown("""
-Welcome to the Image Database System. This application allows you to:
+# Navigation with organized sections
+pg = st.navigation({
+    "Main": [
+        st.Page("pages/00_Home.py", title="Home", icon="🏠"),
+    ],
+    "Search & Browse": [
+        st.Page("pages/1_Upload.py", title="Upload Images", icon="⬆️"),
+        st.Page("pages/2_Search.py", title="Search Images", icon="🔍"),
+        st.Page("pages/3_Hash_Search.py", title="Hash Search", icon="#️⃣"),
+    ],
+    "Database Management": [
+        st.Page("pages/4_Index_Management.py", title="Management Hub", icon="⚙️"),
+        st.Page("pages/5_Ingest_Images.py", title="Ingest Images", icon="📂"),
+        st.Page("pages/6_Rebuild_Index.py", title="Rebuild Index", icon="🔄"),
+        st.Page("pages/7_Database_Status.py", title="Database Status", icon="📊"),
+        st.Page("pages/8_Remove_Images.py", title="Remove Images", icon="🗑️"),
+    ],
+})
 
-- **Upload Images**: Add new images to the database with automatic embedding generation
-- **Search Images**: Find similar images using vector similarity search
-- **Hash Search**: Look up images by their SHA-256 hash
-- **Index Management**: Manage the database, ingest folders, rebuild index, and view statistics
-
-Use the sidebar to navigate between pages.
-""")
-
-# Display system status
-st.header("System Status")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Metadata Database")
-    try:
-        db = ImageDatabase(str(DB_PATH))
-        records = db.list_all()
-        st.metric("Total Images", len(records))
-        st.success(f"Connected: {DB_PATH}")
-    except Exception as e:
-        st.error(f"Error connecting to database: {e}")
-
-with col2:
-    st.subheader("Embedding Database")
-    try:
-        emb_db = EmbeddingDatabase(str(EMBEDDING_DB_PATH))
-        models = emb_db.list_models()
-        st.metric("Models", len(models))
-        if models:
-            st.info(f"Models: {', '.join(models)}")
-        st.success(f"Connected: {EMBEDDING_DB_PATH}")
-    except Exception as e:
-        st.error(f"Error connecting to embedding database: {e}")
-
-# Configuration info
-st.header("Configuration")
-st.markdown("""
-**Environment Variables:**
-- `EMBEDDING_API_URL`: URL of the embedding API server
-- `EMBEDDING_MODEL`: Model to use for embeddings
-- `EMBEDDING_API_KEY`: API key (optional)
-""")
+pg.run()
