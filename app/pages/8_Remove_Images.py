@@ -18,6 +18,8 @@ DB_PATH = Path(__file__).parent.parent.parent / "data" / "images.db"
 EMBEDDING_DB_PATH = Path(__file__).parent.parent.parent / "data" / "embeddings"
 INDEX_PATH = Path(__file__).parent.parent.parent / "data" / "index.json"
 
+PAGE_SIZE = 25
+
 st.set_page_config(page_title="Remove Images", page_icon="🗑️", layout="wide")
 
 st.title("🗑️ Remove Images from Database")
@@ -52,48 +54,170 @@ if INDEX_PATH.exists():
     except Exception:
         pass
 
+# Session state init
+if 'selected_for_removal' not in st.session_state:
+    st.session_state.selected_for_removal = set()
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 0
+# Track last search context to reset page on change
+if 'last_search_context' not in st.session_state:
+    st.session_state.last_search_context = None
+
 # Search method
-search_mode = st.radio(
-    "Search Mode",
-    ["View All", "Search by Hash Prefix"],
-    horizontal=True,
-)
+tab_all, tab_hash, tab_path = st.tabs(["View All", "Search by Hash Prefix", "Search by Path"])
 
-records_to_display = []
+all_records = []
+search_context = "none"
 
-if search_mode == "View All":
-    with st.spinner("Loading all records..."):
-        records_to_display = db.list_all()
-    st.info(f"Found {len(records_to_display)} images in database")
+with tab_all:
+    if st.button("Load all records"):
+        with st.spinner("Loading all records..."):
+            all_records = db.list_all()
+        st.session_state["_all_records_cache"] = all_records
+    elif "_all_records_cache" in st.session_state:
+        all_records = st.session_state["_all_records_cache"]
+    if all_records:
+        st.info(f"Found {len(all_records)} images in database")
+        search_context = "all"
 
-else:  # Search by Hash Prefix
+with tab_hash:
     hash_prefix = st.text_input(
         "Enter hash prefix",
         placeholder="e.g., abc123...",
-        help="Enter the beginning of the image hash"
+        help="Enter the beginning of the image hash",
     )
-
-    if hash_prefix:
-        records_to_display = db.search_by_prefix(hash_prefix.strip().lower())
-        if records_to_display:
-            st.success(f"Found {len(records_to_display)} matching image(s)")
+    hash_find_btn = st.button("Find", key="hash_find")
+    search_context = f"prefix:{hash_prefix}:find={hash_find_btn}"
+    if hash_find_btn:
+        if not hash_prefix:
+            st.warning("Enter a hash prefix first")
         else:
-            st.warning("No images found matching this prefix")
+            all_records = db.search_by_prefix(hash_prefix.strip().lower())
+            if all_records:
+                st.success(f"Found {len(all_records)} matching image(s)")
+            else:
+                st.warning("No images found matching this prefix")
+
+with tab_path:
+    path_query = st.text_input(
+        "Enter path substring",
+        placeholder="e.g., /photos/2024 or vacation",
+        help="Any part of the file path (case-insensitive)",
+    )
+    c1, c2, _ = st.columns([1, 1, 4])
+    with c1:
+        find_btn = st.button("Find", width="stretch")
+        no_path_btn = st.button("Show images with no path", width="stretch")
+
+    search_context = f"path:{path_query}:find={find_btn}:nopath={no_path_btn}"
+    if no_path_btn:
+        with st.spinner("Searching..."):
+            candidates = db.list_all()
+        all_records = [r for r in candidates if not index.get(r.hash, "")]
+        if all_records:
+            st.success(f"Found {len(all_records)} image(s) with no path")
+        else:
+            st.warning("All images have a path")
+    elif find_btn:
+        if not path_query:
+            st.warning("Enter a path substring first")
+        else:
+            q = path_query.strip().lower()
+            with st.spinner("Searching..."):
+                candidates = db.list_all()
+            all_records = [
+                r for r in candidates
+                if (rel := index.get(r.hash, ""))
+                and (q in rel.lower() or (base_path and q in str(Path(base_path) / rel).lower()))
+            ]
+            if all_records:
+                st.success(f"Found {len(all_records)} matching image(s)")
+            else:
+                st.warning("No images found matching this path")
+
+# Reset to page 0 when search context changes
+if search_context != st.session_state.last_search_context:
+    st.session_state.current_page = 0
+    st.session_state.last_search_context = search_context
 
 # Display records and allow selection
-if records_to_display:
+if all_records:
     st.divider()
-    st.subheader("Select Images to Remove")
 
-    # Create a table with checkboxes
-    selected_hashes = []
+    st.header("Search results")
 
-    # Use session state to track selections
-    if 'selected_for_removal' not in st.session_state:
-        st.session_state.selected_for_removal = set()
+    # Sort controls
+    sort_col1, sort_col2 = st.columns([2, 1])
+    with sort_col1:
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Insertion order", "Hash", "Date (created)", "Date (ingested)", "Size", "Path"],
+            key="sort_by",
+        )
+    with sort_col2:
+        sort_asc = st.radio("Order", ["Ascending", "Descending"], horizontal=True, key="sort_order") == "Ascending"
+
+    def record_sort_key(r):
+        if sort_by == "Hash":
+            return r.hash or ""
+        elif sort_by == "Date (created)":
+            return r.created_at or ""
+        elif sort_by == "Date (ingested)":
+            return r.ingested_at or ""
+        elif sort_by == "Size":
+            return r.size or 0
+        elif sort_by == "Path":
+            fp = index.get(r.hash, "")
+            return str(Path(base_path) / fp) if fp and base_path else fp
+        return ""  # Insertion order: no sort
+
+    if sort_by != "Insertion order":
+        all_records = sorted(all_records, key=record_sort_key, reverse=not sort_asc)
+
+    total_pages = max(1, (len(all_records) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = st.session_state.current_page
+
+    st.subheader(f"Select Images to Remove — page {page + 1} / {total_pages}")
+
+    # Pagination controls (top)
+    col_prev, col_info, col_next = st.columns([1, 3, 1])
+    with col_prev:
+        if st.button("← Previous", disabled=page == 0, key="prev_top"):
+            st.session_state.current_page -= 1
+            st.rerun()
+    with col_info:
+        start = page * PAGE_SIZE + 1
+        end = min((page + 1) * PAGE_SIZE, len(all_records))
+        st.caption(f"Showing records {start}–{end} of {len(all_records)}")
+    with col_next:
+        if st.button("Next →", disabled=page >= total_pages - 1, key="next_top"):
+            st.session_state.current_page += 1
+            st.rerun()
+
+    # Slice records for current page
+    page_records = all_records[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+
+    # Bulk selection helpers — must be ABOVE the records loop so checkbox
+    # widget state is set before the checkboxes are instantiated
+    if len(page_records) > 1:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Select page"):
+                for record in page_records:
+                    st.session_state.selected_for_removal.add(record.hash)
+                    st.session_state[f"remove_checkbox_{record.hash}"] = True
+                st.rerun()
+        with col2:
+            if st.button("Deselect page"):
+                for record in page_records:
+                    st.session_state.selected_for_removal.discard(record.hash)
+                    st.session_state[f"remove_checkbox_{record.hash}"] = False
+                st.rerun()
+        with col3:
+            st.info(f"{len(st.session_state.selected_for_removal)} selected total")
 
     # Display as cards with selection
-    for i, record in enumerate(records_to_display):
+    for i, record in enumerate(page_records):
         # Get filepath
         filepath = index.get(record.hash, "Path not in index")
         if filepath != "Path not in index" and base_path:
@@ -107,16 +231,19 @@ if records_to_display:
             col1, col2 = st.columns([1, 2])
 
             with col1:
-                # Try to display thumbnail
-                if filepath != "Path not in index" and Path(filepath).exists():
-                    try:
-                        from PIL import Image
-                        img = Image.open(filepath)
-                        st.image(img, width=200)
-                    except Exception:
-                        st.text("[Image unavailable]")
-                else:
-                    st.text("[Image not found on disk]")
+                show_key = f"show_thumb_{record.hash}"
+                if st.button("Show thumbnail", key=f"btn_thumb_{record.hash}"):
+                    st.session_state[show_key] = True
+                if st.session_state.get(show_key):
+                    if filepath != "Path not in index" and Path(filepath).exists():
+                        try:
+                            from PIL import Image
+                            img = Image.open(filepath)
+                            st.image(img, width=200)
+                        except Exception:
+                            st.text("[Image unavailable]")
+                    else:
+                        st.text("[Image not found on disk]")
 
             with col2:
                 st.markdown(f"**Hash:** `{record.hash}`")
@@ -152,6 +279,20 @@ if records_to_display:
                 st.session_state.selected_for_removal.add(record.hash)
             else:
                 st.session_state.selected_for_removal.discard(record.hash)
+
+    # Pagination controls (bottom)
+    st.divider()
+    col_prev, col_info, col_next = st.columns([1, 3, 1])
+    with col_prev:
+        if st.button("← Previous", disabled=page == 0, key="prev_bottom"):
+            st.session_state.current_page -= 1
+            st.rerun()
+    with col_info:
+        st.caption(f"Page {page + 1} of {total_pages}")
+    with col_next:
+        if st.button("Next →", disabled=page >= total_pages - 1, key="next_bottom"):
+            st.session_state.current_page += 1
+            st.rerun()
 
     # Show selection summary
     if st.session_state.selected_for_removal:
@@ -225,8 +366,10 @@ if records_to_display:
 
                 status_text.text("Removal complete!")
 
-                # Clear selection
+                # Clear selection, reset page and cached record list
                 st.session_state.selected_for_removal.clear()
+                st.session_state.current_page = 0
+                st.session_state.pop("_all_records_cache", None)
 
                 # Show results
                 st.success("✅ Removal complete!")
@@ -241,19 +384,3 @@ if records_to_display:
                 # Refresh the page
                 st.cache_resource.clear()
                 st.rerun()
-
-    # Bulk selection helpers
-    if records_to_display and len(records_to_display) > 1:
-        st.divider()
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("Select All"):
-                for record in records_to_display:
-                    st.session_state.selected_for_removal.add(record.hash)
-                st.rerun()
-        with col2:
-            if st.button("Deselect All"):
-                st.session_state.selected_for_removal.clear()
-                st.rerun()
-        with col3:
-            st.info(f"{len(st.session_state.selected_for_removal)} selected")
